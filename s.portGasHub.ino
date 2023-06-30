@@ -17,29 +17,31 @@
 #define VOLTAGE_PIN2 A3     //analog pin used to read a voltage from the ignition battery
 #define RPM_PIN 2           //digital pin with or without interrupt for measuring rpm from cdi unit.
 
-//#define USE_INTERRUPTS    // measure rpm using interupts.  comment out to use a simple pin read.
-                            // depending on cpu speed and max rpm; interupts can swamp the cpu
-                            // in this scenario simply comment out the USE_INTERRUPTS define
-                            // and things should play better.
+#define USE_INTERRUPTS    // measure rpm using interupts.  
+                          // to use this you need an interrupt capable pin.  On the nano this is normally
+                          // pin 2 and 3.   Alternatively.. just comment the line out and
+                          // the code will use a slightly worse but still effective method
+                          // of reading the pin and counting the pulses.
 
 
 #define SENSOR_ID1 0x5900   //unique id number for voltage read on VOLTAGE_PIN1
 #define SENSOR_ID2 0x5901   //unique id number for voltage read on VOLTAGE_PIN2
 #define SENSOR_ID3 0x5902   //unique id number for RPM sensom read on RPM_PIN
-
+#define SENSOR_ID4 0x5903   //unique id number for RPM sensor - running not running
 
 // initialise s.port and create 3 sensors
 SPortHub hub(0x12, SPORT_PIN);           
 SimpleSPortSensor sensor1(SENSOR_ID1);   
 SimpleSPortSensor sensor2(SENSOR_ID2);   
 SimpleSPortSensor sensor3(SENSOR_ID3);  
-
+SimpleSPortSensor sensor4(SENSOR_ID4);  
 
 // variables used for rpm sensor 
 int rpmPulse = 0;
 unsigned long lastRead = 0;
-unsigned long interval = 500;
+unsigned long interval = 1000;
 int last_rpm;
+int rpmHZ = 0;
 
 // variables used by kalman filter to smooth throttle readings.
 double kalman_q= 0.05;   
@@ -75,10 +77,6 @@ void loop() {
    
         unsigned long time = millis();  // keep track of time
 
-
-        #ifdef USE_INTERRUPTS  
-        noInterrupts();
-        #endif
             
             //GET VOLTAGE1
             sensorValue1 =  kalman_update1(analogRead(VOLTAGE_PIN1));
@@ -97,13 +95,28 @@ void loop() {
             #endif
                 if (millis() - lastRead >= interval) {
                   lastRead  += interval;
-                  sensorValue3 = rpmPulse * 30;
-                  sensor3.value = sensorValue3; 
+                  #ifndef USE_INTERRUPTS 
+                  rpmHZ = rpmPulse/4;   //need to check this out..need division by 4 because the CHANGE on the interrupt triggers going in and out of states.
+                  #else
+                  rpmHZ = rpmPulse;
+                  #endif
                   rpmPulse = 0;
                 }
-            #ifdef USE_INTERRUPTS      
-            interrupts();
-            #endif
+                sensorValue3 = rpmHZ * 60;
+
+                if(sensorValue3 < 500){   // we only sample ever 1s.  so dont show anything lower than a certain rpm as not helpfull.
+                    sensor3.value = 0; 
+                }else{
+                    sensor3.value = sensorValue3; 
+                }
+
+                //simple rpm value to flag if engine running or not running.
+                if(rpmHZ <= 1 ){
+                  sensor4.value = 0;     
+                } else {
+                  sensor4.value = 1; 
+                }
+                
 
       hub.handle(); //keep s.port data current.
 
@@ -152,9 +165,7 @@ void rpmPinInterrupt()
 {
   rpmPulse++;
 }
-#endif
-
-#ifndef USE_INTERRUPTS  
+#else
 void readRPM(){
       int this_rpm = digitalRead(RPM_PIN);
       if( this_rpm == 0 && last_rpm == 1){ 
