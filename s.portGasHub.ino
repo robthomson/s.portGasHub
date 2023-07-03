@@ -44,6 +44,15 @@ unsigned int counter, countPeriod;
 double kalman_q= 0.05;   
 double kalman_r= 150;   
 
+//RPM
+#define WINDOW_SIZE 5  
+int INDEX = 0;
+int VALUE = 0;
+int SUM = 0;
+int READINGS[WINDOW_SIZE];
+int AVERAGED = 0;
+
+
 // voltage divider ration - this is used as a multiplier to go from the 3v signal to the real received signal
 float dividerRatio = 6.065;
 
@@ -54,6 +63,8 @@ float sensorValue3;
 float sensorValue4;
 float sensorValue5;
 
+
+
 void setup() {
   hub.registerSensor(sensor1);       //Add sensor to the hub
   hub.registerSensor(sensor2);       //Add sensor to the hub
@@ -63,14 +74,17 @@ void setup() {
   
   pinMode(RPM_PIN, INPUT);           // enable rpm reading on pin
 
+  pinMode(12,OUTPUT);
 
   hub.begin();                      //start the s.port transmition
   
-  Serial.begin(115200); // enable serial port if code debugging.
+ // Serial.begin(115200); // enable serial port if code debugging.
 
 }
 
 void loop() {
+
+
 
           startCount(1000);
           while(!nextCount) {
@@ -90,14 +104,19 @@ void loop() {
    
            
             //RPM
-            sensorValue3 = (totalCounts * 60);
+            SUM = SUM - READINGS[INDEX];       // Remove the oldest entry from the sum
+            VALUE = totalCounts;        // Read the next sensor value
+            READINGS[INDEX] = VALUE;           // Add the newest reading to the window
+            SUM = SUM + VALUE;                 // Add the newest reading to the sum
+            INDEX = (INDEX+1) % WINDOW_SIZE;   // Increment the index, and wrap to 0 if it exceeds the window size
+          
+            AVERAGED = SUM / WINDOW_SIZE;      // Divide the sum of the window by the window size for the result
+              
+            sensorValue3 = (AVERAGED * 60);
             sensor3.value = sensorValue3; 
-
-            Serial.println(totalCounts);
-
             //HZ
-            sensorValue4 = totalCounts;
-            sensor4.value = totalCounts;     
+            sensorValue4 = AVERAGED;
+            sensor4.value = AVERAGED;     
 
             //HZ
             if(sensorValue3 <= 60){
@@ -107,7 +126,7 @@ void loop() {
             }
             sensor5.value = sensorValue5;     
 
- 
+        
 
 }
 
