@@ -93,7 +93,7 @@ void loop() {
             sensor2.value = sensorValue2; 
 
 
-            if (FreqMeasure.available()) {
+            if (FreqMeasure.available() >= 2) {
                 // average several reading together
                 sum = sum + FreqMeasure.read();
                 count = count + 1;
@@ -105,9 +105,12 @@ void loop() {
                 }
               } 
 
+
             //time out the measurements if nothing for some time.
-            if((millis() - lastRPMms) > 2000){
+            if (FreqMeasure.available() <= 1) {
+            if((millis() - lastRPMms) > 5000){
                 rpmHZ = 0;         
+            }
             }
            
             //CDI RPM VALUE
@@ -119,7 +122,7 @@ void loop() {
             sensor4.value =  sensorValue4;     
 
             //ENGINE RUNNING/NOT RUNNING
-            if(rpmHZ <= 10){
+            if(rpmHZ <= 2){
                  sensorValue5 = 0;
             } else {
                 sensorValue5 = 1;
