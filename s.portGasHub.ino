@@ -105,6 +105,8 @@ void loop() {
                 }
               } 
 
+            Serial.println(rpmHZ);
+
 
             //time out the measurements if nothing for some time.
             if (FreqMeasure.available() <= 1) {
