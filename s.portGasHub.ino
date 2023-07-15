@@ -13,15 +13,15 @@
 // 
 // Most CDI units will output 5v to the signal line.  This is too high for for some arduino
 // boards.  A 10K resistor on the RPM pin line will drop the 5v down to 3v.
-// a 100pf capacitor can also be of benifit linked from the cdi pin to gnd.
+// a 100pf capacitor can also be of benifit linked inline as this will filter the signal effecively.
 
 #include <SPort.h>                  //Include the SPort library
 #include <FreqMeasure.h>
 #include <arduino-timer.h>
 
 #define SPORT_PIN 9         //a digital pin to send s.port data to frsky receiver.
-#define VOLTAGE_PIN1 A2     //analog pin used to read a voltage from receiver battery
-#define VOLTAGE_PIN2 A3     //analog pin used to read a voltage from the ignition battery
+#define VOLTAGE_PIN1 A6     //analog pin used to read a voltage from receiver battery
+#define VOLTAGE_PIN2 A7     //analog pin used to read a voltage from the ignition battery
 #define RPM_PIN 8           //digital pin 8 must be used for CDI timing.  Do not change
 
 
@@ -39,16 +39,18 @@ SimpleSPortSensor sensor3(SENSOR_ID3);
 SimpleSPortSensor sensor4(SENSOR_ID4);  
 SimpleSPortSensor sensor5(SENSOR_ID5);  
 
-// variables used by kalman filter to smooth throttle readings.
-double kalman_q= 0.05;   
-double kalman_r= 150;   
+
+//timer
+auto timer = timer_create_default();
 
 //RPM
 unsigned long rpmHZ = 0;
 int lastRPMms = 0;
 
 // voltage divider ration - this is used as a multiplier to go from the 3v signal to the real received signal
-float dividerRatio = 6.065;
+float lastV1 = 0;
+float lastV2 = 0;
+
 
 // sensor values
 float sensorValue1;
@@ -56,25 +58,23 @@ float sensorValue2;
 float sensorValue3;
 float sensorValue4;
 float sensorValue5;
-
-//timer
-auto timer = timer_create_default();
-  
+float dividerRatio = 6.065;
 
 void setup() {
+
+  //analogReference(INTERNAL);
+  
   hub.registerSensor(sensor1);       //Add sensor to the hub
   hub.registerSensor(sensor2);       //Add sensor to the hub
   hub.registerSensor(sensor3);       //Add sensor to the hub
   hub.registerSensor(sensor4);       //Add sensor to the hub
   hub.registerSensor(sensor5);       //Add sensor to the hub
   
-  //pinMode(12,OUTPUT);
 
   hub.begin();                      //start the s.port transmition
 
   FreqMeasure.begin();
-
-  timer.every(5000, getVoltages);  //update voltage every 5 seconds
+  timer.every(1000, updateVoltages);  //update voltage every 5 seconds
 
   Serial.begin(115200); // enable serial port if code debugging.
 
@@ -82,18 +82,23 @@ void setup() {
 
 double sum=0;
 int count=0;
+
 void loop() {
 
 
- 
-            //SET VOLTAGE1
-            sensor1.value = sensorValue1;   
-      
-            //SET VOLTAGE2
-            sensor2.value = sensorValue2; 
+            //handle voltage reading
+              sensorValue1 =  analogRead(VOLTAGE_PIN1);
+              float voltage1 = sensorValue1 * 0.0048875855327468;
+              lastV1 = (voltage1 * dividerRatio) * 100;
+
+              sensorValue2 =  analogRead(VOLTAGE_PIN2);
+              float voltage2 = sensorValue2 * 0.0048875855327468;
+              lastV2 = (voltage2 * dividerRatio) * 100;
+
+       
 
 
-            if (FreqMeasure.available() >= 2) {
+            if (FreqMeasure.available()) {
                 // average several reading together
                 sum = sum + FreqMeasure.read();
                 count = count + 1;
@@ -104,8 +109,6 @@ void loop() {
                   lastRPMms = millis();
                 }
               } 
-
-            Serial.println(rpmHZ);
 
 
             //time out the measurements if nothing for some time.
@@ -134,10 +137,11 @@ void loop() {
 
             hub.handle();    
             timer.tick();
+            
 }
 
-bool getVoltages(){
-            sensorValue1= ((analogRead(VOLTAGE_PIN1) * (5.0 / 1023.0)) *  dividerRatio) * 100;
-            sensorValue2 = ((analogRead(VOLTAGE_PIN2) * (5.0 / 1023.0)) * dividerRatio) * 100;            
-            return true; 
+bool updateVoltages(){
+        sensor1.value = lastV1;           
+        sensor2.value = lastV2;  
+        return true;
 }
