@@ -13,7 +13,10 @@
 // 
 // Most CDI units will output 5v to the signal line.  This is too high for for some arduino
 // boards.  A 10K resistor on the RPM pin line will drop the 5v down to 3v.
-// a 100pf capacitor can also be of benifit linked inline as this will filter the signal effecively.
+// a 100pf capacitor can also be of benifit to filter the signal effecively.
+// reality is that best solution is an optical filter; or not taking the signal off the CDI
+// and rather using a second hall sensor pickup of feeding off the existing.
+// CDI is just noisy and without good filtering will sometimes screw up the readings.
 
 #include <SPort.h>                  //Include the SPort library
 #include <FreqMeasure.h>
@@ -47,6 +50,10 @@ auto timer = timer_create_default();
 unsigned long rpmHZ = 0;
 int lastRPMms = 0;
 
+int lastRPM = 0;
+int lastRPMHZ = 0;
+int lastIG = 0;
+
 // voltage divider ration - this is used as a multiplier to go from the 3v signal to the real received signal
 float lastV1 = 0;
 float lastV2 = 0;
@@ -71,33 +78,34 @@ void setup() {
   hub.registerSensor(sensor5);       //Add sensor to the hub
   
 
-  hub.begin();                      //start the s.port transmition
-
-  FreqMeasure.begin();
-  timer.every(1000, updateVoltages);  //update voltage every 5 seconds
-
-  Serial.begin(115200); // enable serial port if code debugging.
+  hub.begin();                        //start the s.port transmition
+  FreqMeasure.begin();                // start measuring rpm
+  timer.every(5000, updateVoltages);  //update voltage every 5 seconds
+  timer.every(1000, updateRPMs);       //update rpm value ever 1 second
 
 }
 
 double sum=0;
 int count=0;
 
+
 void loop() {
 
 
-            //handle voltage reading
-              sensorValue1 =  analogRead(VOLTAGE_PIN1);
-              float voltage1 = sensorValue1 * 0.0048875855327468;
-              lastV1 = (voltage1 * dividerRatio) * 100;
+            // handle voltage reading
+            // we need to constantly read this and return to a temp var that
+            // we return to s.port every couple of seconds.
+            // if we dont constantly read; we end up with bad values being sent.
+            
+            sensorValue1 =  analogRead(VOLTAGE_PIN1);
+            float voltage1 = sensorValue1 * 0.0048875855327468;
+            lastV1 = (voltage1 * dividerRatio) * 100;
 
-              sensorValue2 =  analogRead(VOLTAGE_PIN2);
-              float voltage2 = sensorValue2 * 0.0048875855327468;
-              lastV2 = (voltage2 * dividerRatio) * 100;
+            sensorValue2 =  analogRead(VOLTAGE_PIN2);
+            float voltage2 = sensorValue2 * 0.0048875855327468;
+            lastV2 = (voltage2 * dividerRatio) * 100;
 
-       
-
-
+            //grab the latest rpm value and process it.
             if (FreqMeasure.available()) {
                 // average several reading together
                 sum = sum + FreqMeasure.read();
@@ -110,7 +118,6 @@ void loop() {
                 }
               } 
 
-
             //time out the measurements if nothing for some time.
             if (FreqMeasure.available() <= 1) {
             if((millis() - lastRPMms) > 5000){
@@ -118,26 +125,32 @@ void loop() {
             }
             }
            
-            //CDI RPM VALUE
+            //RETURN CDI RPM VALUE to s.port
             sensorValue3 = (rpmHZ * 60);
-            sensor3.value = sensorValue3; 
+            lastRPM = sensorValue3; 
             
-            //CDI HZ VALUE
+            //RETURN CDI HZ VALUE to s.port
             sensorValue4 = rpmHZ;
-            sensor4.value =  sensorValue4;     
+            lastRPMHZ =  sensorValue4;     
 
-            //ENGINE RUNNING/NOT RUNNING
+            //RETURN ENGINE RUNNING/NOT RUNNING to sport
             if(rpmHZ <= 2){
                  sensorValue5 = 0;
             } else {
                 sensorValue5 = 1;
             }
-            sensor5.value = sensorValue5;     
-
+            lastIG = sensorValue5;     
 
             hub.handle();    
             timer.tick();
-            
+        
+}
+
+bool updateRPMs(){
+    sensor3.value = lastRPM; 
+    sensor4.value =  lastRPMHZ;   
+    sensor5.value = lastIG;    
+    return true;
 }
 
 bool updateVoltages(){
