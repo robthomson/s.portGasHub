@@ -31,14 +31,12 @@
 #define VOLTAGE_PIN1 A6     //analog pin used to read a voltage from receiver battery
 #define VOLTAGE_PIN2 A7     //analog pin used to read a voltage from the ignition battery
 #define RPM_PIN 8           //digital pin 8 must be used for CDI timing.  Do not change
-#define RPM_FILTER 20       //lower or increase this number to do more/less filtering of signal
+#define RPM_FILTER 10       //lower or increase this number to do more/less filtering of signal
 #define RPM_TIMEOUT 5
 
-#define SENSOR_ID1 0x5900   //unique id number for voltage read on VOLTAGE_PIN1
-#define SENSOR_ID2 0x5901   //unique id number for voltage read on VOLTAGE_PIN2
-#define SENSOR_ID3 0x5902   //unique id number for RPM sensom read on RPM_PIN (RPM)
-#define SENSOR_ID4 0x5903   //unique id number for RPM sensor read on RPM_PIN (HZ)
-#define SENSOR_ID5 0x5904   //unique id number for RPM sensor read on RPM_PIN (1 = running 0 = off) just a simple flag you can grab to notify of dead stick
+#define SENSOR_ID1 0x0210   //unique id number for voltage read on VOLTAGE_PIN1 (0x0210 ~ 0x021f)
+#define SENSOR_ID2 0x0211   //unique id number for voltage read on VOLTAGE_PIN2 (0x0210 ~ 0x021f)
+#define SENSOR_ID3 0x0500   //unique id number for RPM sensor read on RPM_PIN (RPM) (0x0500 ~ 0x050f)
 
 // initialise s.port and create 3 sensors
 SPortHub hub(0x12, SPORT_PIN);           
