@@ -18,8 +18,18 @@
 // and rather using a second hall sensor pickup of feeding off the existing.
 // CDI is just noisy and without good filtering will sometimes screw up the readings.
 
+#define USE_INTERRUPTS // measure rpm using interupts.  
+                       // this method will use the FreqMeasure Library and requires you wire up to pin 8
+                       // if not defined then we revert to a simple 'software' system.  not as accurate 
+                       // but it does work!
+
+
 #include <SPort.h>                  //Include the SPort library
-#include <FreqMeasure.h>
+
+#ifdef USE_INTERRUPTS  
+  #include <FreqMeasure.h>
+#endif
+
 #include <arduino-timer.h>
 
 #define SPORT_PIN 9         //a digital pin to send s.port data to frsky receiver.
@@ -39,20 +49,31 @@ SPortHub hub(0x12, SPORT_PIN);
 SimpleSPortSensor sensor1(SENSOR_ID1);   
 SimpleSPortSensor sensor2(SENSOR_ID2);   
 SimpleSPortSensor sensor3(SENSOR_ID3);  
-SimpleSPortSensor sensor4(SENSOR_ID4);  
-SimpleSPortSensor sensor5(SENSOR_ID5);  
+
 
 
 //timer
 auto timer = timer_create_default();
 
 //RPM
-unsigned long rpmHZ = 0;
-int lastRPMms = 0;
 
-int lastRPM = 0;
-int lastRPMHZ = 0;
-int lastIG = 0;
+
+#ifdef USE_INTERRUPTS 
+  unsigned long rpmHZ = 0;
+  int lastRPMms = 0;
+  int lastRPM = 0;
+  int lastRPMHZ = 0;
+  int lastIG = 0;
+#else
+  int rpmPulse = 0;
+  unsigned long lastRead = 0;
+  unsigned long interval = 1000;
+  int last_rpm;
+  int lastRPM = 0;  
+  int rpmHZ = 0;
+  int lastRPMms = 0;
+#endif
+
 
 // voltage divider ration - this is used as a multiplier to go from the 3v signal to the real received signal
 float lastV1 = 0;
@@ -63,8 +84,7 @@ float lastV2 = 0;
 float sensorValue1;
 float sensorValue2;
 float sensorValue3;
-float sensorValue4;
-float sensorValue5;
+
 float dividerRatio = 6.065;
 
 void setup() {
@@ -74,12 +94,17 @@ void setup() {
   hub.registerSensor(sensor1);       //Add sensor to the hub
   hub.registerSensor(sensor2);       //Add sensor to the hub
   hub.registerSensor(sensor3);       //Add sensor to the hub
-  hub.registerSensor(sensor4);       //Add sensor to the hub
-  hub.registerSensor(sensor5);       //Add sensor to the hub
+
   
 
   hub.begin();                        //start the s.port transmition
+
+#ifdef USE_INTERRUPTS  
   FreqMeasure.begin();                // start measuring rpm
+#else
+  pinMode(RPM_PIN, INPUT);           // enable rpm reading on pin
+#endif
+  
   timer.every(5000, updateVoltages);  //update voltage every 5 seconds
   timer.every(1000, updateRPMs);       //update rpm value ever 1 second
 
@@ -104,7 +129,8 @@ void loop() {
             sensorValue2 =  analogRead(VOLTAGE_PIN2);
             float voltage2 = sensorValue2 * 0.0048875855327468;
             lastV2 = (voltage2 * dividerRatio) * 100;
-
+            
+#ifdef USE_INTERRUPTS  
             //grab the latest rpm value and process it.
             if (FreqMeasure.available()) {
                 // average several reading together
@@ -118,38 +144,39 @@ void loop() {
                 }
               } 
 
-            //time out the measurements if nothing for some time.
-            if (FreqMeasure.available() <= 1) {
-            if((millis() - lastRPMms) > 5000){
-                rpmHZ = 0;         
-            }
-            }
-           
-            //RETURN CDI RPM VALUE to s.port
             sensorValue3 = (rpmHZ * 60);
             lastRPM = sensorValue3; 
-            
-            //RETURN CDI HZ VALUE to s.port
-            sensorValue4 = rpmHZ;
-            lastRPMHZ =  sensorValue4;     
+#else 
+           int this_rpm = digitalRead(RPM_PIN);
+           if( this_rpm == 1 && last_rpm == 0){ 
+               rpmPulse++;
+           }
+           last_rpm = this_rpm;
+           if (millis() - lastRead >= interval) {
+            lastRead  += interval;
+            rpmHZ = rpmPulse*2;
+            rpmPulse = 0;
+          }
+          sensorValue3 = ((rpmHZ) * 60);
 
-            //RETURN ENGINE RUNNING/NOT RUNNING to sport
-            if(rpmHZ <= 2){
-                 sensorValue5 = 0;
-            } else {
-                sensorValue5 = 1;
-            }
-            lastIG = sensorValue5;     
+          if(sensorValue3 > 100){  // only update if positive
+            lastRPM = sensorValue3;
+            lastRPMms = millis();            
+          }        
+
+
+#endif  
+            
 
             hub.handle();    
             timer.tick();
         
 }
 
+
+
 bool updateRPMs(){
     sensor3.value = lastRPM; 
-    sensor4.value =  lastRPMHZ;   
-    sensor5.value = lastIG;    
     return true;
 }
 
