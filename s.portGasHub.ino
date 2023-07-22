@@ -18,17 +18,12 @@
 // and rather using a second hall sensor pickup of feeding off the existing.
 // CDI is just noisy and without good filtering will sometimes screw up the readings.
 
-#define USE_INTERRUPTS // measure rpm using interupts.  
-                       // this method will use the FreqMeasure Library and requires you wire up to pin 8
-                       // if not defined then we revert to a simple 'software' system.  not as accurate 
-                       // but it does work!
+
 
 
 #include <SPort.h>                  //Include the SPort library
+#include <FreqMeasure.h>
 
-#ifdef USE_INTERRUPTS  
-  #include <FreqMeasure.h>
-#endif
 
 #include <arduino-timer.h>
 
@@ -36,7 +31,8 @@
 #define VOLTAGE_PIN1 A6     //analog pin used to read a voltage from receiver battery
 #define VOLTAGE_PIN2 A7     //analog pin used to read a voltage from the ignition battery
 #define RPM_PIN 8           //digital pin 8 must be used for CDI timing.  Do not change
-
+#define RPM_FILTER 20       //lower or increase this number to do more/less filtering of signal
+#define RPM_TIMEOUT 5
 
 #define SENSOR_ID1 0x5900   //unique id number for voltage read on VOLTAGE_PIN1
 #define SENSOR_ID2 0x5901   //unique id number for voltage read on VOLTAGE_PIN2
@@ -56,29 +52,13 @@ SimpleSPortSensor sensor3(SENSOR_ID3);
 auto timer = timer_create_default();
 
 //RPM
-
-
-#ifdef USE_INTERRUPTS 
-  unsigned long rpmHZ = 0;
-  int lastRPMms = 0;
-  int lastRPM = 0;
-  int lastRPMHZ = 0;
-  int lastIG = 0;
-#else
-  int rpmPulse = 0;
-  unsigned long lastRead = 0;
-  unsigned long interval = 1000;
-  int last_rpm;
-  int lastRPM = 0;  
-  int rpmHZ = 0;
-  int lastRPMms = 0;
-#endif
-
+unsigned long rpmHZ = 0;
+int lastRPM = 0;
+int rpmTimeout = 0;
 
 // voltage divider ration - this is used as a multiplier to go from the 3v signal to the real received signal
 float lastV1 = 0;
 float lastV2 = 0;
-
 
 // sensor values
 float sensorValue1;
@@ -99,21 +79,15 @@ void setup() {
 
   hub.begin();                        //start the s.port transmition
 
-#ifdef USE_INTERRUPTS  
   FreqMeasure.begin();                // start measuring rpm
-#else
-  pinMode(RPM_PIN, INPUT);           // enable rpm reading on pin
-#endif
-  
-  timer.every(5000, updateVoltages);  //update voltage every 5 seconds
-  timer.every(1000, updateRPMs);       //update rpm value ever 1 second
-
+ 
+  timer.every(2000, updateVoltages);  //update voltage every 5 seconds
+  timer.every(500, updateRPM);       //update rpm value ever 1 second
+  timer.every(5000, resetRPM);       //update rpm value ever 1 second
 }
 
 double sum=0;
 int count=0;
-
-
 void loop() {
 
 
@@ -130,44 +104,23 @@ void loop() {
             float voltage2 = sensorValue2 * 0.0048875855327468;
             lastV2 = (voltage2 * dividerRatio) * 100;
             
-#ifdef USE_INTERRUPTS  
             //grab the latest rpm value and process it.
             if (FreqMeasure.available()) {
                 // average several reading together
                 sum = sum + FreqMeasure.read();
                 count = count + 1;
-                if (count > 30) {
+                if (count > RPM_FILTER) {
                   rpmHZ = FreqMeasure.countToFrequency(sum / count);
                   sum = 0;
                   count = 0;
-                  lastRPMms = millis();
-                }
-              } 
-
+                } 
+            } 
+     
+              
             sensorValue3 = (rpmHZ * 60);
             lastRPM = sensorValue3; 
-#else 
-           int this_rpm = digitalRead(RPM_PIN);
-           if( this_rpm == 1 && last_rpm == 0){ 
-               rpmPulse++;
-           }
-           last_rpm = this_rpm;
-           if (millis() - lastRead >= interval) {
-            lastRead  += interval;
-            rpmHZ = rpmPulse*2;
-            rpmPulse = 0;
-          }
-          sensorValue3 = ((rpmHZ) * 60);
 
-          if(sensorValue3 > 100){  // only update if positive
-            lastRPM = sensorValue3;
-            lastRPMms = millis();            
-          }        
-
-
-#endif  
-            
-
+           
             hub.handle();    
             timer.tick();
         
@@ -175,13 +128,22 @@ void loop() {
 
 
 
-bool updateRPMs(){
+bool updateRPM(){
     sensor3.value = lastRPM; 
     return true;
 }
 
 bool updateVoltages(){
         sensor1.value = lastV1;           
-        sensor2.value = lastV2;  
+        sensor2.value = lastV2;
         return true;
+}
+
+bool resetRPM(){
+    if(lastRPM == rpmTimeout){
+          rpmHZ=0;  
+    } else {
+        rpmTimeout = lastRPM;
+    } 
+    return true;
 }
